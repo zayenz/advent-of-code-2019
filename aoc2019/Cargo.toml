@@ -1,0 +1,16 @@
+[package]
+name = "aoc2019"
+version = "0.1.0"
+authors = ["Mikael Zayenz Lagerkvist <zayenz@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+failure = "0.1.1"
+regex = "1.1.0"
+lazy_static = "1.2.0"
+num = "0.2.0"
+hashbrown = "0.1.7"
+itertools = "0.8.0"
+tap = "0.3.0"
+strum = "0.11.0"
+strum_macros = "0.11.0"
