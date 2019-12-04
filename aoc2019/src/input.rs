@@ -22,10 +22,10 @@ where
     <N as std::str::FromStr>::Err: StdError,
 {
     lazy_static! {
-        static ref Number: Regex = Regex::new(r"-?\d+").unwrap();
+        static ref NUMBER: Regex = Regex::new(r"-?\d+").unwrap();
     }
 
-    Number
+    NUMBER
         .find_iter(input)
         .map(|m| match m.as_str().parse::<N>() {
             Ok(number) => Ok(number),
