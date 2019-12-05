@@ -41,6 +41,25 @@ where
         })
         .collect::<Result<Vec<N>, _>>()
 }
+/// Extract numbers from string.
+///
+/// # Examples
+///
+/// ```
+/// # use failure::Error;
+/// # fn main() -> Result<(), Error> {
+/// use aoc2019::input::get_numbers;
+/// assert_eq!(get_numbers::<i32>("<1, 3*-4>")?, vec![1, 3, -4]);
+/// # Ok(())
+/// # }
+/// ```
+pub fn get_words(input: &str) -> Vec<&str> {
+    lazy_static! {
+        static ref WORD: Regex = Regex::new(r"[[:alpha:]]+").unwrap();
+    }
+
+    WORD.find_iter(input).map(|m| m.as_str()).collect()
+}
 
 #[cfg(test)]
 mod tests {
