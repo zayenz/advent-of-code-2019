@@ -1,8 +1,12 @@
 [workspace]
 members = [
     "aoc2019",
+    "intcode",
     "example-day",
-    "day1-1",    "day2-1",    "day5-1",    "day5-2",    "day5-1",
+    "day1-1",
     "day1-2",
+        "day2-1",
+            "day5-1",
+                "day5-2",
 ]
 
