@@ -22,7 +22,7 @@ fn test_full_memory() {
     for (initial, result) in &cases {
         let mut ic = intcode::IntCode::new(initial);
         let mut input = ();
-        ic.run(&mut input);
+        ic.run(&mut input).unwrap();
         assert_eq!(ic.store(), &result[..]);
     }
 }
