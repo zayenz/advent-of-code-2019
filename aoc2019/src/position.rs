@@ -8,6 +8,7 @@ where
     Self: Copy + Clone,
 {
     fn step(&self, direction: T) -> Self;
+    fn step_by(&self, direction: T, steps: Scalar) -> Self;
 }
 
 pub type Scalar = i32;
@@ -41,6 +42,17 @@ impl Step<Cardinal> for Position {
         };
         Position { x, y }
     }
+
+    fn step_by(&self, direction: Cardinal, steps: Scalar) -> Self {
+        use crate::position::Cardinal::*;
+        let (x, y) = match direction {
+            North => (self.x, self.y - steps),
+            South => (self.x, self.y + steps),
+            West => (self.x - steps, self.y),
+            East => (self.x + steps, self.y),
+        };
+        Position { x, y }
+    }
 }
 
 impl Step<Direction> for Position {
@@ -51,6 +63,17 @@ impl Step<Direction> for Position {
             Down => (self.x, self.y + 1),
             Right => (self.x + 1, self.y),
             Left => (self.x - 1, self.y),
+        };
+        Position { x, y }
+    }
+
+    fn step_by(&self, direction: Direction, steps: i32) -> Self {
+        use crate::position::Direction::*;
+        let (x, y) = match direction {
+            Up => (self.x, self.y - steps),
+            Down => (self.x, self.y + steps),
+            Right => (self.x + steps, self.y),
+            Left => (self.x - steps, self.y),
         };
         Position { x, y }
     }
