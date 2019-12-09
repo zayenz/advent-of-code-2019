@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_imports)]
 
 use failure::Error;
-use failure::{bail, Fail};
+use failure::{bail, err_msg, Fail};
 use joinery::{Joinable, JoinableIterator};
 use rayon::prelude::*;
 use strum_macros::EnumString;
@@ -112,17 +112,25 @@ impl TryFrom<i32> for ArgMode {
 type ArgModes = (ArgMode, ArgMode, ArgMode);
 
 #[derive(Copy, Clone, Ord, PartialOrd, PartialEq, Eq, Debug)]
-enum Status {
+enum AluStatus {
     Continue(usize),
+    NeedsInput,
     Halt,
+}
+
+#[derive(Copy, Clone, Ord, PartialOrd, PartialEq, Eq, Debug)]
+pub enum Status {
+    Done,
+    NeedsInput,
 }
 
 pub type Word = i32;
 
+#[derive(Clone, Debug)]
 pub struct IntCode {
     store: Vec<Word>,
     pc: usize,
-    output: Vec<Word>,
+    output: VecDeque<Word>,
 }
 
 impl IntCode {
@@ -130,7 +138,7 @@ impl IntCode {
         IntCode {
             store: Vec::from(store),
             pc: 0,
-            output: vec![],
+            output: VecDeque::new(),
         }
     }
 
@@ -138,8 +146,16 @@ impl IntCode {
         &self.store
     }
 
-    pub fn output(&self) -> &[Word] {
-        &self.output
+    //    pub fn output(&self) -> &[Word] {
+    //        &self.output
+    //    }
+
+    pub fn has_output(&self) -> bool {
+        !self.output.is_empty()
+    }
+
+    pub fn pop_output(&mut self) -> Result<Word, Error> {
+        self.output.pop_front().ok_or_else(|| err_msg("No output"))
     }
 
     fn decode(&self) -> Result<Op, Error> {
@@ -184,9 +200,9 @@ impl IntCode {
         }
     }
 
-    fn step<I: Input>(&mut self, op: Op, input: &mut I) -> Result<Status, Error> {
+    fn step<I: Input>(&mut self, op: Op, input: &mut I) -> Result<AluStatus, Error> {
+        use AluStatus::*;
         use Op::*;
-        use Status::*;
         Ok(match op {
             Add(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, _am3)) => {
                 let arg1 = am1.get(&self.store, arg1);
@@ -202,14 +218,16 @@ impl IntCode {
                 self.store[arg3 as usize] = result;
                 Continue(self.pc + 4)
             }
-            Input(OpArgs1 { arg }, (_am1, _, _)) => {
-                let read_input = input.read()?;
-                self.store[arg as usize] = read_input;
-                Continue(self.pc + 2)
-            }
+            Input(OpArgs1 { arg }, (_am1, _, _)) => match input.read() {
+                Ok(read_input) => {
+                    self.store[arg as usize] = read_input;
+                    Continue(self.pc + 2)
+                }
+                Err(NoInputAvailable) => NeedsInput,
+            },
             Output(OpArgs1 { arg }, (am1, _, _)) => {
                 let output = am1.get(&self.store, arg);
-                self.output.push(output);
+                self.output.push_back(output);
                 Continue(self.pc + 2)
             }
             JumpIfTrue(OpArgs2 { arg1, arg2 }, (am1, am2, _)) => {
@@ -244,21 +262,27 @@ impl IntCode {
                 self.store[arg3 as usize] = result;
                 Continue(self.pc + 4)
             }
-            Op::Halt => Status::Halt,
+            Op::Halt => AluStatus::Halt,
         })
     }
 
-    pub fn run<I: Input>(&mut self, input: &mut I) -> Result<(), Error> {
+    pub fn run<I: Input>(&mut self, input: &mut I) -> Result<Status, Error> {
         if DEBUG {
             self.debug_print();
         }
+        let status;
         loop {
             let op = self.decode()?;
             match self.step(op, input)? {
-                Status::Continue(next_pc) => {
+                AluStatus::Continue(next_pc) => {
                     self.pc = next_pc;
                 }
-                Status::Halt => {
+                AluStatus::Halt => {
+                    status = Some(Status::Done);
+                    break;
+                }
+                AluStatus::NeedsInput => {
+                    status = Some(Status::NeedsInput);
                     break;
                 }
             }
@@ -269,10 +293,10 @@ impl IntCode {
         if DEBUG {
             self.debug_print();
         }
-        Ok(())
+        Ok(status.expect("Must have a status"))
     }
 
-    pub fn run_no_input(&mut self) -> Result<(), Error> {
+    pub fn run_no_input(&mut self) -> Result<Status, Error> {
         self.run(&mut ())
     }
 
