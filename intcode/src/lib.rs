@@ -17,10 +17,11 @@ use std::str;
 use std::str::FromStr;
 use std::{io, process};
 
-use crate::ArgMode::{Immediate, Position};
+use crate::ArgMode::{Immediate, Position, Relative};
 use crate::InputError::NoInputAvailable;
 use aoc2019::input::get_numbers;
 use failure::_core::fmt::Formatter;
+use itertools::Itertools;
 use std::fmt::Display;
 
 /// When true, the int-code routines will output diagnostic
@@ -28,23 +29,23 @@ const DEBUG: bool = false;
 
 #[derive(Copy, Clone, Ord, PartialOrd, PartialEq, Eq, Debug)]
 struct OpArgs1 {
-    arg: i32,
+    arg: Word,
 }
 
 impl OpArgs1 {
-    fn from(store: &[i32], pc: usize) -> OpArgs1 {
+    fn from(store: &[Word], pc: usize) -> OpArgs1 {
         OpArgs1 { arg: store[pc] }
     }
 }
 
 #[derive(Copy, Clone, Ord, PartialOrd, PartialEq, Eq, Debug)]
 struct OpArgs2 {
-    arg1: i32,
-    arg2: i32,
+    arg1: Word,
+    arg2: Word,
 }
 
 impl OpArgs2 {
-    fn from(store: &[i32], pc: usize) -> OpArgs2 {
+    fn from(store: &[Word], pc: usize) -> OpArgs2 {
         OpArgs2 {
             arg1: store[pc],
             arg2: store[pc + 1],
@@ -54,13 +55,13 @@ impl OpArgs2 {
 
 #[derive(Copy, Clone, Ord, PartialOrd, PartialEq, Eq, Debug)]
 struct OpArgs3 {
-    arg1: i32,
-    arg2: i32,
-    arg3: i32,
+    arg1: Word,
+    arg2: Word,
+    arg3: Word,
 }
 
 impl OpArgs3 {
-    fn from(store: &[i32], pc: usize) -> OpArgs3 {
+    fn from(store: &[Word], pc: usize) -> OpArgs3 {
         OpArgs3 {
             arg1: store[pc],
             arg2: store[pc + 1],
@@ -79,6 +80,7 @@ enum Op {
     JumpIfFalse(OpArgs2, ArgModes),
     LessThan(OpArgs3, ArgModes),
     Equal(OpArgs3, ArgModes),
+    RelativeBaseOffset(OpArgs1, ArgModes),
     Halt,
 }
 
@@ -86,24 +88,17 @@ enum Op {
 enum ArgMode {
     Position,
     Immediate,
+    Relative,
 }
 
-impl ArgMode {
-    fn get(self, store: &[i32], arg: i32) -> i32 {
-        match self {
-            Position => store[arg as usize],
-            Immediate => arg,
-        }
-    }
-}
-
-impl TryFrom<i32> for ArgMode {
+impl TryFrom<Word> for ArgMode {
     type Error = Error;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: Word) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Position),
             1 => Ok(Immediate),
+            2 => Ok(Relative),
             _ => bail!("Value {} is not vaild for ArgMode", value),
         }
     }
@@ -124,12 +119,14 @@ pub enum Status {
     NeedsInput,
 }
 
-pub type Word = i32;
+pub type Word = i128;
 
 #[derive(Clone, Debug)]
 pub struct IntCode {
     store: Vec<Word>,
     pc: usize,
+    relative_base: Word,
+    instruction_counter: u64,
     output: VecDeque<Word>,
 }
 
@@ -138,6 +135,8 @@ impl IntCode {
         IntCode {
             store: Vec::from(store),
             pc: 0,
+            relative_base: 0,
+            instruction_counter: 0,
             output: VecDeque::new(),
         }
     }
@@ -146,9 +145,9 @@ impl IntCode {
         &self.store
     }
 
-    //    pub fn output(&self) -> &[Word] {
-    //        &self.output
-    //    }
+    pub fn output_copy(&self) -> Vec<Word> {
+        self.output.iter().cloned().collect()
+    }
 
     pub fn has_output(&self) -> bool {
         !self.output.is_empty()
@@ -156,6 +155,38 @@ impl IntCode {
 
     pub fn pop_output(&mut self) -> Result<Word, Error> {
         self.output.pop_front().ok_or_else(|| err_msg("No output"))
+    }
+
+    fn get(&mut self, arg: Word, arg_mode: ArgMode) -> Word {
+        match arg_mode {
+            Immediate => arg,
+            Position | Relative => {
+                let position = match arg_mode {
+                    Position => arg,
+                    Relative => self.relative_base + arg,
+                    Immediate => unreachable!("Already handled above"),
+                } as usize;
+                if position >= self.store.len() {
+                    self.store.resize(position + 1, 0);
+                };
+                self.store[position]
+            }
+        }
+    }
+
+    fn get_store_position(&mut self, arg: Word, arg_mode: ArgMode) -> usize {
+        (match arg_mode {
+            Position => arg,
+            Immediate => unreachable!("No store argument should have immediate as value"),
+            Relative => (self.relative_base + arg),
+        }) as usize
+    }
+
+    fn set(&mut self, position: usize, value: Word) {
+        if position >= self.store.len() {
+            self.store.resize(position + 1, 0);
+        };
+        self.store[position] = value;
     }
 
     fn decode(&self) -> Result<Op, Error> {
@@ -195,6 +226,10 @@ impl IntCode {
                 OpArgs3::from(&self.store, self.pc + 1),
                 arg_modes,
             )),
+            9 => Ok(Op::RelativeBaseOffset(
+                OpArgs1::from(&self.store, self.pc + 1),
+                arg_modes,
+            )),
             99 => Ok(Op::Halt),
             code => bail!("Unknown op code {} at {}", code, self.pc),
         }
@@ -204,35 +239,43 @@ impl IntCode {
         use AluStatus::*;
         use Op::*;
         Ok(match op {
-            Add(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, _am3)) => {
-                let arg1 = am1.get(&self.store, arg1);
-                let arg2 = am2.get(&self.store, arg2);
+            Add(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, am3)) => {
+                let arg1 = self.get(arg1, am1);
+                let arg2 = self.get(arg2, am2);
                 let result = arg1 + arg2;
-                self.store[arg3 as usize] = result;
+                let position = self.get_store_position(arg3, am3);
+                self.set(position, result);
+                self.instruction_counter += 1;
                 Continue(self.pc + 4)
             }
-            Multiply(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, _am3)) => {
-                let arg1 = am1.get(&self.store, arg1);
-                let arg2 = am2.get(&self.store, arg2);
+            Multiply(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, am3)) => {
+                let arg1 = self.get(arg1, am1);
+                let arg2 = self.get(arg2, am2);
                 let result = arg1 * arg2;
-                self.store[arg3 as usize] = result;
+                let position = self.get_store_position(arg3, am3);
+                self.set(position, result);
+                self.instruction_counter += 1;
                 Continue(self.pc + 4)
             }
-            Input(OpArgs1 { arg }, (_am1, _, _)) => match input.read() {
+            Input(OpArgs1 { arg }, (am1, _, _)) => match input.read() {
                 Ok(read_input) => {
-                    self.store[arg as usize] = read_input;
+                    let position = self.get_store_position(arg, am1);
+                    self.set(position, read_input);
+                    self.instruction_counter += 1;
                     Continue(self.pc + 2)
                 }
                 Err(NoInputAvailable) => NeedsInput,
             },
             Output(OpArgs1 { arg }, (am1, _, _)) => {
-                let output = am1.get(&self.store, arg);
+                let output = self.get(arg, am1);
                 self.output.push_back(output);
+                self.instruction_counter += 1;
                 Continue(self.pc + 2)
             }
             JumpIfTrue(OpArgs2 { arg1, arg2 }, (am1, am2, _)) => {
-                let arg1 = am1.get(&self.store, arg1);
-                let arg2 = am2.get(&self.store, arg2);
+                let arg1 = self.get(arg1, am1);
+                let arg2 = self.get(arg2, am2);
+                self.instruction_counter += 1;
                 if arg1 != 0 {
                     Continue(arg2 as usize)
                 } else {
@@ -240,29 +283,42 @@ impl IntCode {
                 }
             }
             JumpIfFalse(OpArgs2 { arg1, arg2 }, (am1, am2, _)) => {
-                let arg1 = am1.get(&self.store, arg1);
-                let arg2 = am2.get(&self.store, arg2);
+                let arg1 = self.get(arg1, am1);
+                let arg2 = self.get(arg2, am2);
+                self.instruction_counter += 1;
                 if arg1 == 0 {
                     Continue(arg2 as usize)
                 } else {
                     Continue(self.pc + 3)
                 }
             }
-            LessThan(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, _am3)) => {
-                let arg1 = am1.get(&self.store, arg1);
-                let arg2 = am2.get(&self.store, arg2);
+            LessThan(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, am3)) => {
+                let arg1 = self.get(arg1, am1);
+                let arg2 = self.get(arg2, am2);
                 let result = if arg1 < arg2 { 1 } else { 0 };
-                self.store[arg3 as usize] = result;
+                let position = self.get_store_position(arg3, am3);
+                self.set(position, result);
+                self.instruction_counter += 1;
                 Continue(self.pc + 4)
             }
-            Equal(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, _am3)) => {
-                let arg1 = am1.get(&self.store, arg1);
-                let arg2 = am2.get(&self.store, arg2);
+            Equal(OpArgs3 { arg1, arg2, arg3 }, (am1, am2, am3)) => {
+                let arg1 = self.get(arg1, am1);
+                let arg2 = self.get(arg2, am2);
                 let result = if arg1 == arg2 { 1 } else { 0 };
-                self.store[arg3 as usize] = result;
+                let position = self.get_store_position(arg3, am3);
+                self.set(position, result);
+                self.instruction_counter += 1;
                 Continue(self.pc + 4)
             }
-            Op::Halt => AluStatus::Halt,
+            RelativeBaseOffset(OpArgs1 { arg }, (am1, _am2, _am3)) => {
+                self.relative_base += self.get(arg, am1);
+                self.instruction_counter += 1;
+                Continue(self.pc + 2)
+            }
+            Op::Halt => {
+                self.instruction_counter += 1;
+                AluStatus::Halt
+            }
         })
     }
 
@@ -311,6 +367,10 @@ impl IntCode {
         println!();
         print!("Output: [{}]", self.output.iter().join_with(", "));
     }
+
+    pub fn executed_instructions_count(&self) -> u64 {
+        self.instruction_counter
+    }
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -341,19 +401,19 @@ impl SingleInput {
 }
 
 impl Input for SingleInput {
-    fn read(&mut self) -> Result<i32, InputError> {
+    fn read(&mut self) -> Result<Word, InputError> {
         self.input.take().ok_or(NoInputAvailable)
     }
 }
 
 impl Input for () {
-    fn read(&mut self) -> Result<i32, InputError> {
+    fn read(&mut self) -> Result<Word, InputError> {
         Err(NoInputAvailable)
     }
 }
 
 impl Input for VecDeque<Word> {
-    fn read(&mut self) -> Result<i32, InputError> {
+    fn read(&mut self) -> Result<Word, InputError> {
         self.pop_front().ok_or(NoInputAvailable)
     }
 }

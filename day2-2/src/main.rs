@@ -20,15 +20,15 @@ use std::{io, process};
 use aoc2019::input::get_numbers;
 use intcode::*;
 
-type Input = Vec<i32>;
-type Output = i32;
+type Input = Vec<Word>;
+type Output = Word;
 
 fn read_input() -> Result<Input, Error> {
     let stdin = io::stdin();
     let mut result = Vec::new();
     for line in stdin.lock().lines() {
         let line = line?;
-        let mut numbers = get_numbers::<i32>(&line)?;
+        let mut numbers = get_numbers::<Word>(&line)?;
         result.append(&mut numbers);
     }
 
@@ -47,7 +47,7 @@ fn solve(program: &mut Input) -> Result<Output, Error> {
                 local[1] = *noun;
                 local[2] = *verb;
                 let mut ic = IntCode::new(&local);
-                ic.run(&mut ()).unwrap_or(());
+                ic.run(&mut ()).ok().unwrap();
                 let result = ic.store()[0];
                 (noun, verb, result)
             })
@@ -62,7 +62,7 @@ fn solve(program: &mut Input) -> Result<Output, Error> {
                 local[1] = noun;
                 local[2] = verb;
                 let mut ic = IntCode::new(&local);
-                ic.run(&mut ()).unwrap_or(());
+                ic.run(&mut ()).ok().unwrap();
                 let result = ic.store()[0];
                 (noun, verb, result)
             })

@@ -73,7 +73,34 @@ fn test_input_to_first_output() {
             let mut ic = intcode::IntCode::new(initial);
             let mut input = SingleInput::new(*input);
             ic.run(&mut input).unwrap();
-            assert_eq!(ic.output()[0], *output);
+            assert_eq!(ic.pop_output().ok().unwrap(), *output);
         }
+    }
+}
+
+#[test]
+fn test_no_input_to_full_output() {
+    let cases = [
+        (
+            vec![
+                109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99,
+            ],
+            vec![
+                109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99,
+            ],
+        ),
+        (
+            vec![1102, 34915192, 34915192, 7, 4, 7, 99, 0],
+            vec![1219070632396864],
+        ),
+        (vec![104, 1125899906842624, 99], vec![1125899906842624]),
+        //        (vec![], vec![]),
+    ];
+
+    for (initial, output) in &cases {
+        //            println!("{}, {}, [{}]", input, output, initial.iter().join_with(", "));
+        let mut ic = intcode::IntCode::new(initial);
+        ic.run(&mut ()).unwrap();
+        assert_eq!(ic.output_copy(), *output);
     }
 }

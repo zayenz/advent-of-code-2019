@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_imports)]
+#![allow(dead_code, unused_imports, clippy::ptr_arg)]
 
 use failure::bail;
 use failure::err_msg;
@@ -20,15 +20,15 @@ use std::{io, process};
 use aoc2019::input::get_numbers;
 use intcode::*;
 
-type Input = Vec<i32>;
-type Output = i32;
+type Input = Vec<Word>;
+type Output = Word;
 
 fn read_input() -> Result<Input, Error> {
     let stdin = io::stdin();
     let mut result = Vec::new();
     for line in stdin.lock().lines() {
         let line = line?;
-        let mut numbers = get_numbers::<i32>(&line)?;
+        let mut numbers = get_numbers::<Word>(&line)?;
         result.append(&mut numbers);
     }
 
@@ -41,17 +41,16 @@ fn solve(code: &Input) -> Result<Output, Error> {
         .permutations(5)
         .map(|phase_settings| {
             let mut programs = programs.clone();
-            let result = programs.iter_mut().zip(phase_settings.iter()).fold(
+            programs.iter_mut().zip(phase_settings.iter()).fold(
                 0,
                 |input_signal, (program, phase_setting)| {
                     let mut input = VecDeque::new();
                     input.push_back(*phase_setting);
                     input.push_back(input_signal);
-                    program.run(&mut input).unwrap_or_default();
-                    program.output()[0]
+                    program.run(&mut input).ok().unwrap();
+                    program.pop_output().ok().unwrap()
                 },
-            );
-            result
+            )
         })
         .max()
         .expect("Must exist");
@@ -60,9 +59,9 @@ fn solve(code: &Input) -> Result<Output, Error> {
 }
 
 fn run() -> Result<(), Error> {
-    let mut input = read_input()?;
+    let input = read_input()?;
 
-    let output = solve(&mut input)?;
+    let output = solve(&input)?;
 
     println!("{}", output);
     Ok(())
