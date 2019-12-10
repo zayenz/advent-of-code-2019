@@ -268,6 +268,11 @@ impl LineSegment {
         Bounds::from_points(self.start, self.end)
     }
 
+    pub fn angle(&self) -> f64 {
+        let heading = nalgebra::Rotation2::rotation_between(&Vector2::x(), &self.vector); //.expect("Angle must exist for simple vectors in 2D");
+        heading.angle()
+    }
+
     /// Find the point on this segment that is closest to `point`
     pub fn closest_point_on_segment(&self, point: Point2) -> Point2 {
         // Source for math: http://paulbourke.net/geometry/pointlineplane/
