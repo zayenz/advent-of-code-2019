@@ -19,6 +19,7 @@ use std::{io, process};
 
 use crate::ArgMode::{Immediate, Position, Relative};
 use crate::InputError::NoInputAvailable;
+use crate::Status::HasOutput;
 use aoc2019::input::get_numbers;
 use failure::_core::fmt::Formatter;
 use itertools::Itertools;
@@ -117,6 +118,7 @@ enum AluStatus {
 pub enum Status {
     Done,
     NeedsInput,
+    HasOutput,
 }
 
 pub type Word = i128;
@@ -147,6 +149,10 @@ impl IntCode {
 
     pub fn output_copy(&self) -> Vec<Word> {
         self.output.iter().cloned().collect()
+    }
+
+    pub fn output_iter(&self) -> std::collections::vec_deque::Iter<Word> {
+        self.output.iter()
     }
 
     pub fn has_output(&self) -> bool {
@@ -332,6 +338,41 @@ impl IntCode {
             match self.step(op, input)? {
                 AluStatus::Continue(next_pc) => {
                     self.pc = next_pc;
+                }
+                AluStatus::Halt => {
+                    status = Some(Status::Done);
+                    break;
+                }
+                AluStatus::NeedsInput => {
+                    status = Some(Status::NeedsInput);
+                    break;
+                }
+            }
+            if DEBUG {
+                self.debug_print();
+            }
+        }
+        if DEBUG {
+            self.debug_print();
+        }
+        Ok(status.expect("Must have a status"))
+    }
+
+    pub fn run_to_output<I: Input>(&mut self, input: &mut I) -> Result<Status, Error> {
+        if DEBUG {
+            self.debug_print();
+        }
+        let status;
+        loop {
+            let op = self.decode()?;
+            let output_len = self.output.len();
+            match self.step(op, input)? {
+                AluStatus::Continue(next_pc) => {
+                    self.pc = next_pc;
+                    if self.output.len() != output_len {
+                        status = Some(HasOutput);
+                        break;
+                    }
                 }
                 AluStatus::Halt => {
                     status = Some(Status::Done);

@@ -273,6 +273,10 @@ impl LineSegment {
         heading.angle()
     }
 
+    pub fn length(&self) -> f64 {
+        self.vector.norm()
+    }
+
     /// Find the point on this segment that is closest to `point`
     pub fn closest_point_on_segment(&self, point: Point2) -> Point2 {
         // Source for math: http://paulbourke.net/geometry/pointlineplane/
